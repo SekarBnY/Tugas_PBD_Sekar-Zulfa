@@ -70,7 +70,7 @@ app.get('/api/charts/hiring', async (req, res) => {
     }
 });
 
-// GET /api/charts/departments (Distribution)
+// GET /api/charts/departments
 app.get('/api/charts/departments', async (req, res) => {
     try {
         const [rows] = await db.query(`
@@ -88,7 +88,24 @@ app.get('/api/charts/departments', async (req, res) => {
     }
 });
 
-// GET /api/employees (With Filtering)
+// GET /api/charts/demographics
+app.get('/api/charts/demographics', async (req, res) => {
+    try {
+        const [genderRows] = await db.query(`SELECT gender as name, COUNT(*) as value FROM employees GROUP BY gender`);
+        const [ageRows] = await db.query(`
+            SELECT CONCAT(FLOOR(YEAR(birth_date)/10)*10, 's') as name, COUNT(*) as value 
+            FROM employees 
+            GROUP BY name 
+            ORDER BY name ASC
+        `);
+        res.json({ status: 'success', data: { gender: genderRows, age: ageRows } });
+    } catch (error) {
+        console.error('[SQL_ERROR]', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// GET /api/employees
 app.get('/api/employees', async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
@@ -153,6 +170,30 @@ app.get('/api/employees', async (req, res) => {
     }
 });
 
+// GET /api/employees/:id/history
+app.get('/api/employees/:id/history', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const [empRows] = await db.query(`SELECT emp_no, first_name, last_name, gender, DATE_FORMAT(birth_date, '%Y-%m-%d') as birth_date, DATE_FORMAT(hire_date, '%Y-%m-%d') as hire_date FROM employees WHERE emp_no = ?`, [id]);
+        if (empRows.length === 0) return res.status(404).json({ error: 'Employee not found' });
+        
+        const [titles] = await db.query(`SELECT title, DATE_FORMAT(from_date, '%Y-%m-%d') as from_date, DATE_FORMAT(to_date, '%Y-%m-%d') as to_date FROM titles WHERE emp_no = ? ORDER BY from_date DESC`, [id]);
+        const [salaries] = await db.query(`SELECT salary, DATE_FORMAT(from_date, '%Y-%m-%d') as from_date, DATE_FORMAT(to_date, '%Y-%m-%d') as to_date FROM salaries WHERE emp_no = ? ORDER BY from_date DESC`, [id]);
+
+        res.json({
+            status: 'success',
+            data: {
+                profile: empRows[0],
+                titles,
+                salaries
+            }
+        });
+    } catch (error) {
+        console.error('[SQL_ERROR]', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // GET /api/units/capacity
 app.get('/api/units/capacity', async (req, res) => {
     try {
@@ -161,7 +202,9 @@ app.get('/api/units/capacity', async (req, res) => {
                 d.dept_no,
                 d.dept_name as name, 
                 COUNT(de.emp_no) as nodes, 
-                SUM(s.salary) as total_budget
+                SUM(s.salary) as total_budget,
+                (SELECT CONCAT(e2.first_name, ' ', e2.last_name) FROM dept_manager dm2 JOIN employees e2 ON dm2.emp_no = e2.emp_no WHERE dm2.dept_no = d.dept_no AND dm2.to_date = '9999-01-01' LIMIT 1) as current_manager,
+                (SELECT dm2.emp_no FROM dept_manager dm2 WHERE dm2.dept_no = d.dept_no AND dm2.to_date = '9999-01-01' LIMIT 1) as manager_id
             FROM departments d 
             JOIN dept_emp de ON d.dept_no = de.dept_no AND de.to_date = '9999-01-01'
             JOIN salaries s ON de.emp_no = s.emp_no AND s.to_date = '9999-01-01'
@@ -169,8 +212,6 @@ app.get('/api/units/capacity', async (req, res) => {
             ORDER BY total_budget DESC
         `);
         
-        // Calculate status dynamically (Mock Logic: Top 25% Critical, Next 25% High, etc)
-        const sorted = [...rows].sort((a,b) => b.total_budget - a.total_budget);
         const processedRows = rows.map(r => {
             const budget = parseFloat(r.total_budget);
             let status = 'Low';
@@ -192,16 +233,129 @@ app.get('/api/units/capacity', async (req, res) => {
     }
 });
 
+// [NEW] GET /api/departments/:dept_no
+app.get('/api/departments/:dept_no', async (req, res) => {
+    const { dept_no } = req.params;
+    try {
+        const [rows] = await db.query(`
+            SELECT 
+                d.dept_no,
+                d.dept_name as name, 
+                COUNT(de.emp_no) as nodes, 
+                SUM(s.salary) as total_budget,
+                (SELECT CONCAT(e2.first_name, ' ', e2.last_name) FROM dept_manager dm2 JOIN employees e2 ON dm2.emp_no = e2.emp_no WHERE dm2.dept_no = d.dept_no AND dm2.to_date = '9999-01-01' LIMIT 1) as current_manager,
+                (SELECT dm2.emp_no FROM dept_manager dm2 WHERE dm2.dept_no = d.dept_no AND dm2.to_date = '9999-01-01' LIMIT 1) as manager_id
+            FROM departments d 
+            LEFT JOIN dept_emp de ON d.dept_no = de.dept_no AND de.to_date = '9999-01-01'
+            LEFT JOIN salaries s ON de.emp_no = s.emp_no AND s.to_date = '9999-01-01'
+            WHERE d.dept_no = ?
+            GROUP BY d.dept_no, d.dept_name
+        `, [dept_no]);
+        
+        if (rows.length === 0) return res.status(404).json({ error: 'Department not found' });
+        
+        res.json({ status: 'success', data: rows[0] });
+    } catch (error) {
+        console.error('[SQL_ERROR]', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// [NEW] GET /api/departments/:dept_no/managers
+app.get('/api/departments/:dept_no/managers', async (req, res) => {
+    const { dept_no } = req.params;
+    try {
+        const [rows] = await db.query(`
+            SELECT 
+                e.emp_no, 
+                CONCAT(e.first_name, ' ', e.last_name) as full_name,
+                DATE_FORMAT(dm.from_date, '%Y-%m-%d') as from_date,
+                DATE_FORMAT(dm.to_date, '%Y-%m-%d') as to_date
+            FROM dept_manager dm
+            JOIN employees e ON dm.emp_no = e.emp_no
+            WHERE dm.dept_no = ?
+            ORDER BY dm.from_date DESC
+        `, [dept_no]);
+        
+        res.json({ status: 'success', data: rows });
+    } catch (error) {
+        console.error('[SQL_ERROR]', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// [NEW] GET /api/departments/:dept_no/employees
+app.get('/api/departments/:dept_no/employees', async (req, res) => {
+    const { dept_no } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    try {
+        const [countRows] = await db.query(`
+            SELECT COUNT(DISTINCT e.emp_no) as total 
+            FROM employees e
+            JOIN dept_emp de ON e.emp_no = de.emp_no AND de.to_date = '9999-01-01'
+            WHERE de.dept_no = ?
+        `, [dept_no]);
+        const total = countRows[0].total;
+
+        const [rows] = await db.query(`
+            SELECT 
+                e.emp_no, e.first_name, e.last_name, e.gender, 
+                DATE_FORMAT(e.hire_date, '%Y-%m-%d') as hire_date,
+                t.title as classification, 
+                s.salary as fiscal_yield 
+            FROM employees e 
+            JOIN dept_emp de ON e.emp_no = de.emp_no AND de.to_date = '9999-01-01'
+            LEFT JOIN titles t ON e.emp_no = t.emp_no AND t.to_date = '9999-01-01' 
+            LEFT JOIN salaries s ON e.emp_no = s.emp_no AND s.to_date = '9999-01-01' 
+            WHERE de.dept_no = ?
+            ORDER BY e.emp_no ASC 
+            LIMIT ? OFFSET ?
+        `, [dept_no, limit, offset]);
+
+        res.json({
+            status: 'success',
+            data: rows,
+            pagination: {
+                total, page, limit,
+                totalPages: Math.ceil(total / limit)
+            }
+        });
+    } catch (error) {
+        console.error('[SQL_ERROR]', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // GET /api/financial/summary
 app.get('/api/financial/summary', async (req, res) => {
     try {
-        const [rows] = await db.query(`SELECT SUM(salary) as totalPayroll FROM salaries WHERE to_date = '9999-01-01'`);
+        const [currentPayroll] = await db.query(`SELECT SUM(salary) as totalPayroll FROM salaries WHERE to_date = '9999-01-01'`);
+        
+        const [yearlySalaries] = await db.query(`
+            SELECT YEAR(from_date) as yr, SUM(salary) as total 
+            FROM salaries 
+            GROUP BY yr 
+            ORDER BY yr DESC 
+            LIMIT 2
+        `);
+        
+        let growthRate = "0.0%";
+        if (yearlySalaries.length >= 2) {
+            const currentTotal = parseFloat(yearlySalaries[0].total);
+            const prevTotal = parseFloat(yearlySalaries[1].total);
+            const rate = ((currentTotal - prevTotal) / prevTotal) * 100;
+            growthRate = (rate >= 0 ? '+' : '') + rate.toFixed(1) + '%';
+        }
+
         res.json({
             status: 'success',
             data: {
-                totalPayroll: rows[0].totalPayroll ? parseFloat(rows[0].totalPayroll) : 0,
-                growthRate: "+4.2%", // Simulated
-                balance: 150000000 // Simulated Safe Balance
+                totalPayroll: currentPayroll[0].totalPayroll ? parseFloat(currentPayroll[0].totalPayroll) : 0,
+                growthRate: growthRate,
+                balance: 150000000
             }
         });
     } catch (error) {

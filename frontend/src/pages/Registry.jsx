@@ -3,15 +3,21 @@ import axios from 'axios';
 import { GlassCard } from '../components/GlassCard';
 import { Header } from '../components/Header';
 import { Footer } from '../components/Footer';
-import { ChevronLeft, ChevronRight, Search, Eye, Trash2, Database } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, Eye, Trash2, Database, X, History, TrendingUp } from 'lucide-react';
 
 export const Registry = () => {
   const [employees, setEmployees] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 15, totalPages: 1, total: 0 });
   const [filters, setFilters] = useState({ department: '', classification: '' });
   const [loading, setLoading] = useState(true);
+  
   const [sqlLogs, setSqlLogs] = useState([]);
   const logsEndRef = useRef(null);
+
+  // Modal State
+  const [selectedEmp, setSelectedEmp] = useState(null);
+  const [empHistory, setEmpHistory] = useState(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   const addLog = (query) => {
     setSqlLogs(prev => [...prev, { time: new Date().toLocaleTimeString('id-ID'), query }]);
@@ -46,25 +52,42 @@ export const Registry = () => {
   }, [pagination.page, pagination.limit, filters]);
 
   const handlePrevPage = () => {
-    if (pagination.page > 1) {
-      setPagination(prev => ({ ...prev, page: prev.page - 1 }));
-    }
+    if (pagination.page > 1) setPagination(prev => ({ ...prev, page: prev.page - 1 }));
   };
 
   const handleNextPage = () => {
-    if (pagination.page < pagination.totalPages) {
-      setPagination(prev => ({ ...prev, page: prev.page + 1 }));
-    }
+    if (pagination.page < pagination.totalPages) setPagination(prev => ({ ...prev, page: prev.page + 1 }));
   };
 
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
     setFilters(prev => ({ ...prev, [name]: value }));
-    setPagination(prev => ({ ...prev, page: 1 })); // Reset to first page
+    setPagination(prev => ({ ...prev, page: 1 }));
+  };
+
+  const handleInspect = async (empNo) => {
+    setSelectedEmp(empNo);
+    setLoadingHistory(true);
+    addLog(`SELECT * FROM employees, titles, salaries WHERE emp_no = ${empNo}`);
+    try {
+      const res = await axios.get(`http://localhost:5000/api/employees/${empNo}/history`);
+      setEmpHistory(res.data.data);
+      addLog(`-- Loaded complete historical profile for Node #${empNo}`);
+    } catch (error) {
+      console.error("Error fetching history", error);
+      addLog(`-- ERROR: Profile data fetch failed`);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const closeModal = () => {
+    setSelectedEmp(null);
+    setEmpHistory(null);
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-screen bg-slate-50 ml-64">
+    <div className="flex-1 flex flex-col min-h-screen bg-slate-50 ml-64 relative">
       <Header title="Registri Data Node (NODES)" />
       
       <main className="p-8 flex-1 flex flex-col space-y-6">
@@ -139,7 +162,7 @@ export const Registry = () => {
                         <td className="px-4 py-2.5 text-xs text-slate-600 data-mono font-medium">{emp.classification || 'N/A'}</td>
                         <td className="px-4 py-2.5 text-right">
                           <div className="flex items-center justify-end space-x-2 opacity-50 group-hover:opacity-100 transition-opacity">
-                            <button className="p-1.5 bg-slate-100 text-blue-600 rounded hover:bg-blue-100" title="Inspect Node">
+                            <button onClick={() => handleInspect(emp.emp_no)} className="p-1.5 bg-slate-100 text-blue-600 rounded hover:bg-blue-100" title="Inspect Node">
                               <Eye className="w-4 h-4" />
                             </button>
                             <button className="p-1.5 bg-slate-100 text-red-600 rounded hover:bg-red-100" title="Delete Node (Mock)">
@@ -202,6 +225,116 @@ export const Registry = () => {
         </div>
 
       </main>
+
+      {/* Employee Inspect Modal */}
+      {selectedEmp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col border border-slate-200 animate-in fade-in zoom-in duration-200">
+            {/* Modal Header */}
+            <div className="flex justify-between items-center px-6 py-4 bg-slate-800 text-white border-b border-slate-700">
+              <h2 className="text-lg font-black tracking-wider uppercase flex items-center">
+                <Search className="w-5 h-5 mr-3 text-emerald-400" />
+                Rekam Jejak Node
+              </h2>
+              <button onClick={closeModal} className="text-slate-400 hover:text-white transition-colors">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-50">
+              {loadingHistory ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
+                </div>
+              ) : empHistory ? (
+                <div className="space-y-6">
+                  {/* Profile Section */}
+                  <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                      <p className="text-xs text-emerald-600 font-bold tracking-widest uppercase mb-1">Identitas Karyawan</p>
+                      <h3 className="text-2xl font-black text-slate-800">{empHistory.profile.first_name} {empHistory.profile.last_name}</h3>
+                      <p className="text-sm text-slate-500 data-mono mt-1">UID: #{empHistory.profile.emp_no} | Gender: {empHistory.profile.gender === 'M' ? 'Laki-laki' : 'Perempuan'}</p>
+                    </div>
+                    <div className="flex space-x-6 text-right">
+                      <div>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase">Tgl Lahir</p>
+                        <p className="text-sm font-bold text-slate-700 data-mono">{empHistory.profile.birth_date}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase">Tgl Masuk</p>
+                        <p className="text-sm font-bold text-slate-700 data-mono">{empHistory.profile.hire_date}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Titles History */}
+                    <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                      <div className="px-4 py-3 bg-purple-50 border-b border-purple-100 flex items-center">
+                        <History className="w-4 h-4 text-purple-600 mr-2" />
+                        <h4 className="text-sm font-bold text-slate-800 uppercase">Riwayat Jabatan</h4>
+                      </div>
+                      <div className="p-0 overflow-y-auto max-h-80">
+                        <table className="w-full text-left text-sm">
+                          <thead className="bg-slate-50 text-slate-500 text-xs">
+                            <tr>
+                              <th className="px-4 py-2 font-semibold">Jabatan</th>
+                              <th className="px-4 py-2 font-semibold">Masa Berlaku</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {empHistory.titles.map((t, idx) => (
+                              <tr key={idx} className={idx === 0 ? "bg-purple-50/30" : ""}>
+                                <td className="px-4 py-3 font-semibold text-slate-700">{t.title}</td>
+                                <td className="px-4 py-3 text-xs data-mono text-slate-500">
+                                  {t.from_date} <br/>ke {t.to_date === '9999-01-01' ? 'Sekarang' : t.to_date}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Salary History */}
+                    <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                      <div className="px-4 py-3 bg-emerald-50 border-b border-emerald-100 flex items-center">
+                        <TrendingUp className="w-4 h-4 text-emerald-600 mr-2" />
+                        <h4 className="text-sm font-bold text-slate-800 uppercase">Riwayat Gaji (Annual Yield)</h4>
+                      </div>
+                      <div className="p-0 overflow-y-auto max-h-80">
+                        <table className="w-full text-left text-sm">
+                          <thead className="bg-slate-50 text-slate-500 text-xs">
+                            <tr>
+                              <th className="px-4 py-2 font-semibold">Nominal</th>
+                              <th className="px-4 py-2 font-semibold">Masa Berlaku</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {empHistory.salaries.map((s, idx) => (
+                              <tr key={idx} className={idx === 0 ? "bg-emerald-50/30" : ""}>
+                                <td className="px-4 py-3 font-black text-emerald-700 data-mono">${s.salary.toLocaleString('id-ID')}</td>
+                                <td className="px-4 py-3 text-xs data-mono text-slate-500">
+                                  {s.from_date} <br/>ke {s.to_date === '9999-01-01' ? 'Sekarang' : s.to_date}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              ) : (
+                <p className="text-center text-slate-500">Gagal memuat riwayat.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <Footer />
     </div>
   );

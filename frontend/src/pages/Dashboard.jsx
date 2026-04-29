@@ -3,30 +3,35 @@ import axios from 'axios';
 import { GlassCard } from '../components/GlassCard';
 import { Header } from '../components/Header';
 import { Footer } from '../components/Footer';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
 import { Users, Banknote, ShieldAlert, Building2 } from 'lucide-react';
+
+const COLORS = ['#059669', '#9333ea', '#3b82f6', '#f59e0b', '#ef4444'];
 
 export const Dashboard = () => {
   const [stats, setStats] = useState({ totalNodes: 0, averageYield: 0, activeManagers: 0, totalUnits: 0 });
   const [hiringData, setHiringData] = useState([]);
   const [deptData, setDeptData] = useState([]);
   const [latestHires, setLatestHires] = useState([]);
+  const [demographics, setDemographics] = useState({ gender: [], age: [] });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [statsRes, hiringRes, deptRes, latestRes] = await Promise.all([
+        const [statsRes, hiringRes, deptRes, latestRes, demoRes] = await Promise.all([
           axios.get('http://localhost:5000/api/stats'),
           axios.get('http://localhost:5000/api/charts/hiring'),
           axios.get('http://localhost:5000/api/charts/departments'),
-          axios.get('http://localhost:5000/api/latest-hires')
+          axios.get('http://localhost:5000/api/latest-hires'),
+          axios.get('http://localhost:5000/api/charts/demographics')
         ]);
         
         setStats(statsRes.data.data);
         setHiringData(hiringRes.data.data);
         setDeptData(deptRes.data.data);
         setLatestHires(latestRes.data.data);
+        setDemographics(demoRes.data.data);
       } catch (error) {
         console.error("Error fetching data", error);
       } finally {
@@ -94,6 +99,70 @@ export const Dashboard = () => {
               <h3 className="text-2xl font-black text-slate-800 mt-1 data-mono">
                 {stats.activeManagers.toLocaleString('id-ID')}
               </h3>
+            </div>
+          </GlassCard>
+        </div>
+
+        {/* Demographics & Demografi */}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+          <GlassCard className="xl:col-span-1 flex flex-col">
+             <h3 className="text-md font-black text-slate-800 mb-6 flex items-center header-sans uppercase tracking-wider">
+              <span className="w-2 h-6 bg-blue-500 rounded-full mr-3"></span>
+              Distribusi Gender
+            </h3>
+            <div className="flex-1 min-h-[250px] w-full relative">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={demographics.gender}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {demographics.gender.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none flex-col">
+                <span className="text-2xl font-black text-slate-800 data-mono">{demographics.gender.reduce((a,b)=>a+b.value, 0).toLocaleString('id-ID')}</span>
+                <span className="text-[10px] text-slate-500 font-bold uppercase">Total</span>
+              </div>
+            </div>
+            <div className="flex justify-center space-x-4 mt-2">
+               {demographics.gender.map((entry, index) => (
+                 <div key={entry.name} className="flex items-center space-x-1">
+                   <div className="w-3 h-3 rounded-full" style={{backgroundColor: COLORS[index % COLORS.length]}}></div>
+                   <span className="text-xs font-bold text-slate-600">{entry.name === 'M' ? 'Male' : 'Female'}</span>
+                 </div>
+               ))}
+            </div>
+          </GlassCard>
+
+          <GlassCard className="xl:col-span-2">
+            <h3 className="text-md font-black text-slate-800 mb-6 flex items-center header-sans uppercase tracking-wider">
+              <span className="w-2 h-6 bg-orange-500 rounded-full mr-3"></span>
+              Demografi Usia Node (Dekade Kelahiran)
+            </h3>
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={demographics.age} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} className="data-mono" tickLine={false} axisLine={false} />
+                  <YAxis stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} className="data-mono" />
+                  <Tooltip 
+                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                    cursor={{fill: '#f8fafc'}}
+                    itemStyle={{ fontFamily: 'monospace', fontWeight: 'bold' }}
+                  />
+                  <Bar dataKey="value" fill="#f59e0b" radius={[4, 4, 0, 0]} barSize={40} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           </GlassCard>
         </div>

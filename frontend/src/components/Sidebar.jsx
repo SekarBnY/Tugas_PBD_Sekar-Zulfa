@@ -37,18 +37,6 @@ export const Sidebar = () => {
           </NavLink>
         ))}
       </nav>
-
-      <div className="p-4 border-t border-slate-200 bg-white/40">
-        <div className="group relative flex items-center justify-center w-full p-3 rounded-xl bg-slate-50 border border-slate-200 hover:border-purple-300 hover:bg-purple-50 transition-colors cursor-help">
-          <Fingerprint className="w-6 h-6 text-purple-600" />
-          <div className="absolute bottom-full mb-2 hidden group-hover:block w-48 p-2 bg-slate-800 text-white text-xs rounded-lg shadow-xl text-center z-50">
-            <span className="font-semibold block mb-1">Verifikasi Otoritas</span>
-            Development_Unit:<br/>
-            Two Women Engineers Verified
-            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-800 rotate-45"></div>
-          </div>
-        </div>
-      </div>
     </aside>
   );
 };

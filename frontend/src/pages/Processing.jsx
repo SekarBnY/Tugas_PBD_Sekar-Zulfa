@@ -81,9 +81,11 @@ export const Processing = () => {
           <GlassCard className="flex flex-col p-6 border-t-4 border-t-emerald-500">
             <div className="flex items-center space-x-3 mb-4">
               <TrendingUp className="w-5 h-5 text-emerald-600" />
-              <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tingkat Pertumbuhan</h4>
+              <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tingkat Pertumbuhan Aktual</h4>
             </div>
-            <h3 className="text-3xl font-black text-emerald-600 data-mono">{summary.growthRate || '+0.0%'}</h3>
+            <h3 className={`text-3xl font-black data-mono ${summary.growthRate.startsWith('-') ? 'text-red-600' : 'text-emerald-600'}`}>
+              {summary.growthRate || '+0.0%'}
+            </h3>
           </GlassCard>
 
           <GlassCard className="flex flex-col p-6 border-t-4 border-t-purple-500">
