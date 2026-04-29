@@ -1,10 +1,26 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { GlassCard } from '../components/GlassCard';
-import { Header } from '../components/Header';
-import { Footer } from '../components/Footer';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
-import { Users, Banknote, ShieldAlert, Building2 } from 'lucide-react';
+import { Users, Banknote, ShieldAlert, Building2, AlertTriangle } from 'lucide-react';
+
+// Inlining the components here to ensure they compile correctly in the current environment
+const GlassCard = ({ children, className = '' }) => (
+  <div className={`bg-white/90 backdrop-blur-md shadow-sm border border-slate-200 rounded-xl ${className}`}>
+    {children}
+  </div>
+);
+
+const Header = ({ title }) => (
+  <header className="bg-white border-b border-slate-200 px-4 md:px-8 py-4 flex items-center justify-between sticky top-0 z-10">
+    <h1 className="text-xl font-bold text-slate-800">{title}</h1>
+  </header>
+);
+
+const Footer = () => (
+  <footer className="py-6 px-8 text-center mt-auto">
+    <p className="text-sm text-slate-500">© 2026 Pusat Wawasan (DASH). All rights reserved.</p>
+  </footer>
+);
 
 const COLORS = ['#059669', '#9333ea', '#3b82f6', '#f59e0b', '#ef4444'];
 
@@ -15,6 +31,7 @@ export const Dashboard = () => {
   const [latestHires, setLatestHires] = useState([]);
   const [demographics, setDemographics] = useState({ gender: [], age: [] });
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -32,8 +49,33 @@ export const Dashboard = () => {
         setDeptData(deptRes.data.data);
         setLatestHires(latestRes.data.data);
         setDemographics(demoRes.data.data);
+        setErrorMsg(null);
       } catch (error) {
         console.error("Error fetching data", error);
+        setErrorMsg("Koneksi ke backend server gagal (Network Error). Menampilkan data pratinjau simulasi.");
+        
+        // Memuat data mock agar UI Dashboard tetap bisa dirender untuk keperluan preview
+        setStats({ totalNodes: 14250, averageYield: 75400, activeManagers: 104, totalUnits: 12 });
+        setHiringData([
+          { year: 2018, count: 120 }, { year: 2019, count: 250 }, { year: 2020, count: 180 },
+          { year: 2021, count: 320 }, { year: 2022, count: 410 }, { year: 2023, count: 390 }
+        ]);
+        setDeptData([
+          { name: 'Engineering', value: 4500 }, { name: 'Sales', value: 3200 },
+          { name: 'Marketing', value: 2100 }, { name: 'Human Resources', value: 850 },
+          { name: 'Finance', value: 600 }
+        ]);
+        setLatestHires([
+          { emp_no: 10001, first_name: 'Budi', last_name: 'Santoso', title: 'Senior Engineer', hire_date: '2023-11-12' },
+          { emp_no: 10002, first_name: 'Siti', last_name: 'Aminah', title: 'Marketing Manager', hire_date: '2023-12-05' },
+          { emp_no: 10003, first_name: 'Andi', last_name: 'Wijaya', title: 'Sales Associate', hire_date: '2024-01-10' },
+          { emp_no: 10004, first_name: 'Rina', last_name: 'Melati', title: 'HR Specialist', hire_date: '2024-02-14' },
+          { emp_no: 10005, first_name: 'Dewi', last_name: 'Lestari', title: 'Data Analyst', hire_date: '2024-03-01' }
+        ]);
+        setDemographics({
+          gender: [{ name: 'M', value: 8500 }, { name: 'F', value: 5750 }],
+          age: [{ name: '1970s', value: 1200 }, { name: '1980s', value: 4500 }, { name: '1990s', value: 6500 }, { name: '2000s', value: 2050 }]
+        });
       } finally {
         setLoading(false);
       }
@@ -43,14 +85,26 @@ export const Dashboard = () => {
   }, []);
 
   if (loading) {
-    return <div className="flex h-screen items-center justify-center"><div className="animate-spin rounded-full h-32 w-32 border-b-2 border-emerald-600"></div></div>;
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-50">
+        <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-emerald-600"></div>
+      </div>
+    );
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-screen bg-slate-50 ml-64">
+    <div className="flex-1 flex flex-col min-h-screen bg-slate-50 ml-0 md:ml-64 transition-all duration-300">
       <Header title="Pusat Wawasan (DASH)" />
       
-      <main className="p-8 flex-1 space-y-8">
+      <main className="p-4 md:p-8 flex-1 space-y-8">
+
+        {/* Warning Banner untuk Mode Mock/Fallback */}
+        {errorMsg && (
+          <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-lg flex items-center shadow-sm">
+            <AlertTriangle className="text-amber-500 w-6 h-6 mr-3 flex-shrink-0" />
+            <p className="text-amber-800 text-sm font-medium">{errorMsg}</p>
+          </div>
+        )}
         
         {/* Metrik Utama */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
