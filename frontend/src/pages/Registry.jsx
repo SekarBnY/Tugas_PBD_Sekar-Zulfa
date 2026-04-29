@@ -17,7 +17,7 @@ const Header = ({ title }) => (
 
 const Footer = () => (
   <footer className="py-6 px-8 text-center mt-auto">
-    <p className="text-sm text-slate-500">© 2026 Pusat Wawasan (DASH). All rights reserved.</p>
+    <p className="text-sm text-slate-500">© Dikerjakan oleh Sekar dan Zulfa.</p>
   </footer>
 );
 
@@ -25,6 +25,10 @@ export const Registry = () => {
   const [employees, setEmployees] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 15, totalPages: 1, total: 0 });
   const [filters, setFilters] = useState({ department: '', classification: '' });
+  
+  // Fitur Optimasi: Debounce state untuk mengurangi spamming Query ke Database
+  const [debouncedFilters, setDebouncedFilters] = useState({ department: '', classification: '' });
+  
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
   
@@ -45,6 +49,15 @@ export const Registry = () => {
       logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [sqlLogs]);
+
+  // Handler Debounce: Menunda pengiriman kueri sebesar 600ms saat user sedang mengetik
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedFilters(filters);
+      setPagination(prev => ({ ...prev, page: 1 }));
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [filters]);
 
   useEffect(() => {
     const fetchEmployees = async (page, currentFilters) => {
@@ -79,8 +92,8 @@ export const Registry = () => {
       }
     };
 
-    fetchEmployees(pagination.page, filters);
-  }, [pagination.page, pagination.limit, filters]);
+    fetchEmployees(pagination.page, debouncedFilters);
+  }, [pagination.page, pagination.limit, debouncedFilters]);
 
   const handlePrevPage = () => {
     if (pagination.page > 1) setPagination(prev => ({ ...prev, page: prev.page - 1 }));
@@ -93,7 +106,6 @@ export const Registry = () => {
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
     setFilters(prev => ({ ...prev, [name]: value }));
-    setPagination(prev => ({ ...prev, page: 1 }));
   };
 
   const handleInspect = async (empNo) => {

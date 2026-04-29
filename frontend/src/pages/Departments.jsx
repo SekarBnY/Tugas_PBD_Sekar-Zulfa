@@ -19,7 +19,7 @@ const Header = ({ title }) => (
 
 const Footer = () => (
   <footer className="py-6 px-8 text-center mt-auto">
-    <p className="text-sm text-slate-500">© 2026 Pusat Wawasan (DASH). All rights reserved.</p>
+    <p className="text-sm text-slate-500">© Dikerjakan oleh Sekar dan Zulfa.</p>
   </footer>
 );
 
