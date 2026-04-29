@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+@theme {
+  --color-slate-50: #f8fafc;
+  --color-emerald-600: #059669;
+  --color-purple-600: #9333ea;
+}
+
+body {
+  background-color: var(--color-slate-50);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* Glassmorphism pekat */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+}
+
+.glass-header {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(24px);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.6);
+}
+
+.data-mono {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+  letter-spacing: -0.02em;
+}
+
+.header-sans {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
