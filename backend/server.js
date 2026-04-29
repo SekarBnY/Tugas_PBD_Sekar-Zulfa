@@ -105,7 +105,7 @@ app.get('/api/charts/demographics', async (req, res) => {
     }
 });
 
-// GET /api/employees
+// GET /api/employees (OPTIMIZED USING DEFERRED JOINS)
 app.get('/api/employees', async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
@@ -114,40 +114,52 @@ app.get('/api/employees', async (req, res) => {
     const offset = (page - 1) * limit;
 
     let filterParams = [];
+    let whereClause = "WHERE 1=1";
+    
+    // Gunakan LIKE hanya jika filter diisi, mencegah overhead
+    if (department) {
+        whereClause += ` AND d.dept_name LIKE ?`;
+        filterParams.push(`%${department}%`);
+    }
+    if (classification) {
+        whereClause += ` AND t.title LIKE ?`;
+        filterParams.push(`%${classification}%`);
+    }
+
+    // Menggunakan JOIN yang efisien untuk menghitung total baris
     let countQuery = `
-        SELECT COUNT(DISTINCT e.emp_no) as total 
+        SELECT COUNT(e.emp_no) as total 
         FROM employees e
         JOIN dept_emp de ON e.emp_no = de.emp_no AND de.to_date = '9999-01-01'
         JOIN departments d ON de.dept_no = d.dept_no
         LEFT JOIN titles t ON e.emp_no = t.emp_no AND t.to_date = '9999-01-01'
-        WHERE 1=1
+        ${whereClause}
     `;
+
+    // DEFERRED JOIN:
+    // MySQL akan mencari (paginated window) ID-nya dulu di sub-query (sangat ringan).
+    // Setelah ID (misal: 15 baris) ditemukan, barulah MySQL men-join dengan tabel 
+    // karyawan, gaji, dll yang besar untuk mengambil nama dan gajinya.
     let dataQuery = `
         SELECT 
             e.emp_no, e.first_name, e.last_name, e.gender, 
             DATE_FORMAT(e.hire_date, '%Y-%m-%d') as hire_date,
-            d.dept_name as department, t.title as classification, 
+            paginated.dept_name as department, paginated.title as classification, 
             s.salary as fiscal_yield 
-        FROM employees e 
-        JOIN dept_emp de ON e.emp_no = de.emp_no AND de.to_date = '9999-01-01'
-        JOIN departments d ON de.dept_no = d.dept_no
-        LEFT JOIN titles t ON e.emp_no = t.emp_no AND t.to_date = '9999-01-01' 
-        LEFT JOIN salaries s ON e.emp_no = s.emp_no AND s.to_date = '9999-01-01' 
-        WHERE 1=1
+        FROM (
+            SELECT e.emp_no, d.dept_name, t.title
+            FROM employees e
+            JOIN dept_emp de ON e.emp_no = de.emp_no AND de.to_date = '9999-01-01'
+            JOIN departments d ON de.dept_no = d.dept_no
+            LEFT JOIN titles t ON e.emp_no = t.emp_no AND t.to_date = '9999-01-01'
+            ${whereClause}
+            ORDER BY e.emp_no ASC 
+            LIMIT ? OFFSET ?
+        ) as paginated
+        JOIN employees e ON paginated.emp_no = e.emp_no
+        LEFT JOIN salaries s ON paginated.emp_no = s.emp_no AND s.to_date = '9999-01-01'
+        ORDER BY e.emp_no ASC
     `;
-
-    if (department) {
-        countQuery += ` AND d.dept_name LIKE ?`;
-        dataQuery += ` AND d.dept_name LIKE ?`;
-        filterParams.push(`%${department}%`);
-    }
-    if (classification) {
-        countQuery += ` AND t.title LIKE ?`;
-        dataQuery += ` AND t.title LIKE ?`;
-        filterParams.push(`%${classification}%`);
-    }
-
-    dataQuery += ` ORDER BY e.emp_no ASC LIMIT ? OFFSET ?`;
 
     try {
         const [countRows] = await db.query(countQuery, filterParams);
@@ -233,7 +245,7 @@ app.get('/api/units/capacity', async (req, res) => {
     }
 });
 
-// [NEW] GET /api/departments/:dept_no
+// GET /api/departments/:dept_no
 app.get('/api/departments/:dept_no', async (req, res) => {
     const { dept_no } = req.params;
     try {
@@ -261,7 +273,7 @@ app.get('/api/departments/:dept_no', async (req, res) => {
     }
 });
 
-// [NEW] GET /api/departments/:dept_no/managers
+// GET /api/departments/:dept_no/managers
 app.get('/api/departments/:dept_no/managers', async (req, res) => {
     const { dept_no } = req.params;
     try {
@@ -284,7 +296,7 @@ app.get('/api/departments/:dept_no/managers', async (req, res) => {
     }
 });
 
-// [NEW] GET /api/departments/:dept_no/employees
+// GET /api/departments/:dept_no/employees (OPTIMIZED USING DEFERRED JOINS)
 app.get('/api/departments/:dept_no/employees', async (req, res) => {
     const { dept_no } = req.params;
     const page = parseInt(req.query.page) || 1;
@@ -293,7 +305,7 @@ app.get('/api/departments/:dept_no/employees', async (req, res) => {
 
     try {
         const [countRows] = await db.query(`
-            SELECT COUNT(DISTINCT e.emp_no) as total 
+            SELECT COUNT(e.emp_no) as total 
             FROM employees e
             JOIN dept_emp de ON e.emp_no = de.emp_no AND de.to_date = '9999-01-01'
             WHERE de.dept_no = ?
@@ -306,13 +318,17 @@ app.get('/api/departments/:dept_no/employees', async (req, res) => {
                 DATE_FORMAT(e.hire_date, '%Y-%m-%d') as hire_date,
                 t.title as classification, 
                 s.salary as fiscal_yield 
-            FROM employees e 
-            JOIN dept_emp de ON e.emp_no = de.emp_no AND de.to_date = '9999-01-01'
-            LEFT JOIN titles t ON e.emp_no = t.emp_no AND t.to_date = '9999-01-01' 
-            LEFT JOIN salaries s ON e.emp_no = s.emp_no AND s.to_date = '9999-01-01' 
-            WHERE de.dept_no = ?
-            ORDER BY e.emp_no ASC 
-            LIMIT ? OFFSET ?
+            FROM (
+                SELECT emp_no 
+                FROM dept_emp 
+                WHERE dept_no = ? AND to_date = '9999-01-01'
+                ORDER BY emp_no ASC 
+                LIMIT ? OFFSET ?
+            ) de
+            JOIN employees e ON de.emp_no = e.emp_no
+            LEFT JOIN titles t ON de.emp_no = t.emp_no AND t.to_date = '9999-01-01' 
+            LEFT JOIN salaries s ON de.emp_no = s.emp_no AND s.to_date = '9999-01-01' 
+            ORDER BY de.emp_no ASC 
         `, [dept_no, limit, offset]);
 
         res.json({
@@ -364,25 +380,31 @@ app.get('/api/financial/summary', async (req, res) => {
     }
 });
 
-// GET /api/financial/audit
+// GET /api/financial/audit (OPTIMIZED USING DEFERRED JOINS)
 app.get('/api/financial/audit', async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const offset = (page - 1) * limit;
 
     try {
+        // Melakukan sub-select ID dan salary terlebih dahulu untuk mencegah 
+        // MySQL memuat banyak data karyawan ke RAM saat mengurutkan dan melompati baris.
         const [rows] = await db.query(`
             SELECT 
-                e.emp_no, 
+                s.emp_no, 
                 CONCAT(e.first_name, ' ', e.last_name) as full_name,
                 t.title as classification,
                 s.salary as annual_yield
-            FROM salaries s
+            FROM (
+                SELECT emp_no, salary 
+                FROM salaries 
+                WHERE to_date = '9999-01-01' 
+                ORDER BY salary DESC 
+                LIMIT ? OFFSET ?
+            ) s
             JOIN employees e ON s.emp_no = e.emp_no
-            LEFT JOIN titles t ON e.emp_no = t.emp_no AND t.to_date = '9999-01-01'
-            WHERE s.to_date = '9999-01-01'
+            LEFT JOIN titles t ON s.emp_no = t.emp_no AND t.to_date = '9999-01-01'
             ORDER BY s.salary DESC
-            LIMIT ? OFFSET ?
         `, [limit, offset]);
         
         const [countRows] = await db.query(`SELECT COUNT(emp_no) as total FROM salaries WHERE to_date = '9999-01-01'`);
