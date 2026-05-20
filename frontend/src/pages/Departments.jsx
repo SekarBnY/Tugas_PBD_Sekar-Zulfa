@@ -1,8 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import useSWR from 'swr';
 import { useNavigate } from 'react-router-dom';
 import { Building2, AlertTriangle, CheckCircle, Activity, UserCog, ArrowRight } from 'lucide-react';
 import { BarChart, Bar, ResponsiveContainer, YAxis, Tooltip } from 'recharts';
+import { DeptCardSkeleton } from '../components/Skeleton';
+
+const fetcher = url => axios.get(url).then(res => res.data);
+
 
 // Inlining the components to ensure they compile correctly in the current environment
 const GlassCard = ({ children, className = '' }) => (
@@ -24,36 +29,21 @@ const Footer = () => (
 );
 
 export const Departments = () => {
-  const [units, setUnits] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState(null);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const fetchUnits = async () => {
-      try {
-        const res = await axios.get('http://localhost:5000/api/units/capacity');
-        setUnits(res.data.data);
-        setErrorMsg(null);
-      } catch (error) {
-        console.error("Error fetching units", error);
-        setErrorMsg("Koneksi ke server terputus (Network Error). Menampilkan data pratinjau simulasi.");
-        
-        // Mock Data Fallback jika database backend tidak merespons
-        setUnits([
-          { dept_no: 'd005', name: 'Development', nodes: 85607, total_budget: 154200000, current_manager: 'Margareta Leonhardt', manager_id: 110511, status: 'Critical' },
-          { dept_no: 'd007', name: 'Sales', nodes: 52245, total_budget: 92500000, current_manager: 'Hauke Zhang', manager_id: 111133, status: 'High' },
-          { dept_no: 'd004', name: 'Production', nodes: 73485, total_budget: 118400000, current_manager: 'Oscar Gassner', manager_id: 110420, status: 'Critical' },
-          { dept_no: 'd009', name: 'Customer Service', nodes: 23580, total_budget: 41200000, current_manager: 'Yuchang Weedon', manager_id: 111534, status: 'Medium' },
-          { dept_no: 'd001', name: 'Marketing', nodes: 20211, total_budget: 38500000, current_manager: 'Vishwani Minakawa', manager_id: 110039, status: 'Medium' },
-          { dept_no: 'd003', name: 'Human Resources', nodes: 17786, total_budget: 29800000, current_manager: 'Karsten Sigstam', manager_id: 110228, status: 'Low' }
-        ]);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchUnits();
-  }, []);
+  const { data: unitsRes, error: unitsErr, isLoading } = useSWR('http://localhost:5000/api/units/capacity', fetcher);
+
+  const units = unitsErr ? [
+    { dept_no: 'd005', name: 'Development', nodes: 85607, total_budget: 154200000, current_manager: 'Margareta Leonhardt', manager_id: 110511, status: 'Critical' },
+    { dept_no: 'd007', name: 'Sales', nodes: 52245, total_budget: 92500000, current_manager: 'Hauke Zhang', manager_id: 111133, status: 'High' },
+    { dept_no: 'd004', name: 'Production', nodes: 73485, total_budget: 118400000, current_manager: 'Oscar Gassner', manager_id: 110420, status: 'Critical' },
+    { dept_no: 'd009', name: 'Customer Service', nodes: 23580, total_budget: 41200000, current_manager: 'Yuchang Weedon', manager_id: 111534, status: 'Medium' },
+    { dept_no: 'd001', name: 'Marketing', nodes: 20211, total_budget: 38500000, current_manager: 'Vishwani Minakawa', manager_id: 110039, status: 'Medium' },
+    { dept_no: 'd003', name: 'Human Resources', nodes: 17786, total_budget: 29800000, current_manager: 'Karsten Sigstam', manager_id: 110228, status: 'Low' }
+  ] : (unitsRes?.data || []);
+
+  const loading = isLoading;
+  const errorMsg = unitsErr ? "Koneksi ke server terputus (Network Error). Menampilkan data pratinjau simulasi." : null;
 
   const getStatusConfig = (status) => {
     switch (status) {
@@ -85,8 +75,8 @@ export const Departments = () => {
         )}
 
         {loading ? (
-          <div className="flex-1 flex items-center justify-center min-h-[400px]">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-purple-600"></div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {Array.from({ length: 6 }).map((_, i) => <DeptCardSkeleton key={i} />)}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">

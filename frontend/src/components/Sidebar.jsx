@@ -8,6 +8,7 @@ export const Sidebar = () => {
     { name: 'NODES', title: 'Registri Data', icon: Users, path: '/registry' },
     { name: 'UNITS', title: 'Unit Operasional', icon: Building2, path: '/departments' },
     { name: 'PROC', title: 'Pemrosesan Fiskal', icon: Calculator, path: '/processing' },
+    { name: 'MGR', title: 'Laporan Manajer', icon: Fingerprint, path: '/managers' },
   ];
 
   return (

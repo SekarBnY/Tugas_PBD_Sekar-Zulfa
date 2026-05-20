@@ -1,6 +1,10 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback, memo, useMemo } from 'react';
 import axios from 'axios';
+import useSWR, { preload } from 'swr';
 import { ChevronLeft, ChevronRight, Search, Eye, Trash2, Database, X, History, TrendingUp, AlertTriangle } from 'lucide-react';
+import { TableSkeleton } from '../components/Skeleton';
+
+const fetcher = url => axios.get(url).then(res => res.data);
 
 // Inlining the components to ensure they compile correctly in the current environment
 const GlassCard = ({ children, className = '' }) => (
@@ -21,16 +25,36 @@ const Footer = () => (
   </footer>
 );
 
+// Optimasi: Memisahkan baris tabel menjadi komponen Memoized untuk mencegah re-render berlebih
+const EmployeeRow = memo(({ emp, onInspect }) => (
+  <tr className="hover:bg-slate-50 transition-colors group">
+    <td className="px-4 py-2.5 text-xs font-semibold text-emerald-700 data-mono">#{emp.emp_no}</td>
+    <td className="px-4 py-2.5">
+      <p className="text-sm font-bold text-slate-800 whitespace-nowrap">{emp.first_name} {emp.last_name}</p>
+    </td>
+    <td className="px-4 py-2.5 text-xs font-medium text-purple-700 whitespace-nowrap">
+      {emp.department || 'N/A'}
+    </td>
+    <td className="px-4 py-2.5 text-xs text-slate-600 data-mono font-medium whitespace-nowrap">{emp.classification || 'N/A'}</td>
+    <td className="px-4 py-2.5 text-right">
+      <div className="flex items-center justify-end space-x-2 md:opacity-50 group-hover:opacity-100 transition-opacity">
+        <button onClick={() => onInspect(emp.emp_no)} className="p-1.5 bg-slate-100 text-blue-600 rounded hover:bg-blue-100 transition-colors" title="Inspect Node">
+          <Eye className="w-4 h-4" />
+        </button>
+        <button className="p-1.5 bg-slate-100 text-red-600 rounded hover:bg-red-100 transition-colors" title="Delete Node (Mock)">
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </div>
+    </td>
+  </tr>
+));
+
 export const Registry = () => {
-  const [employees, setEmployees] = useState([]);
-  const [pagination, setPagination] = useState({ page: 1, limit: 15, totalPages: 1, total: 0 });
+  const [paginationState, setPaginationState] = useState({ page: 1, limit: 15 });
   const [filters, setFilters] = useState({ department: '', classification: '' });
   
   // Fitur Optimasi: Debounce state untuk mengurangi spamming Query ke Database
   const [debouncedFilters, setDebouncedFilters] = useState({ department: '', classification: '' });
-  
-  const [loading, setLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState(null);
   
   const [sqlLogs, setSqlLogs] = useState([]);
   const logsEndRef = useRef(null);
@@ -40,9 +64,9 @@ export const Registry = () => {
   const [empHistory, setEmpHistory] = useState(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  const addLog = (query) => {
+  const addLog = useCallback((query) => {
     setSqlLogs(prev => [...prev, { time: new Date().toLocaleTimeString('id-ID'), query }]);
-  };
+  }, []);
 
   useEffect(() => {
     if (logsEndRef.current) {
@@ -54,61 +78,54 @@ export const Registry = () => {
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedFilters(filters);
-      setPagination(prev => ({ ...prev, page: 1 }));
+      setPaginationState(prev => ({ ...prev, page: 1 }));
     }, 600);
     return () => clearTimeout(timer);
   }, [filters]);
 
+  const queryParams = `page=${paginationState.page}&limit=${paginationState.limit}&department=${debouncedFilters.department}&classification=${debouncedFilters.classification}`;
+  const apiUrl = `http://localhost:5000/api/employees?${queryParams}`;
+
+  // SWR Hook with keepPreviousData to prevent UI flashes during pagination
+  const { data, error, isLoading } = useSWR(apiUrl, fetcher, { keepPreviousData: true });
+
+  const employees = data?.data || [];
+  const pagination = data?.pagination || { page: 1, limit: 15, totalPages: 1, total: 0 };
+  const loading = isLoading;
+  const errorMsg = error ? "Koneksi ke backend gagal." : null;
+
+  // Logging
   useEffect(() => {
-    const fetchEmployees = async (page, currentFilters) => {
-      setLoading(true);
-      const queryParams = `page=${page}&limit=${pagination.limit}&department=${currentFilters.department}&classification=${currentFilters.classification}`;
-      addLog(`SELECT * FROM employees WHERE department LIKE '%${currentFilters.department}%' AND title LIKE '%${currentFilters.classification}%' LIMIT ${pagination.limit} OFFSET ${(page - 1) * pagination.limit}`);
-      
-      try {
-        const res = await axios.get(`http://localhost:5000/api/employees?${queryParams}`);
-        setEmployees(res.data.data);
-        setPagination(res.data.pagination);
-        setErrorMsg(null);
-        addLog(`-- Returned ${res.data.data.length} rows. Total dataset: ${res.data.pagination.total}`);
-      } catch (error) {
-        console.error("Error fetching employees", error);
-        setErrorMsg("Koneksi ke backend gagal. Menampilkan data simulasi (Mock Data).");
-        addLog(`-- ERROR: Connection failed. Loading fallback mock data.`);
-        
-        // Mock data fallback
-        setEmployees([
-          { emp_no: 10001, first_name: 'Georgi', last_name: 'Facello', department: 'Development', classification: 'Senior Engineer' },
-          { emp_no: 10002, first_name: 'Bezalel', last_name: 'Simmel', department: 'Sales', classification: 'Staff' },
-          { emp_no: 10003, first_name: 'Parto', last_name: 'Bamford', department: 'Production', classification: 'Senior Engineer' },
-          { emp_no: 10004, first_name: 'Chirstian', last_name: 'Koblick', department: 'Production', classification: 'Engineer' },
-          { emp_no: 10005, first_name: 'Kyoichi', last_name: 'Maliniak', department: 'Human Resources', classification: 'Senior Staff' },
-          { emp_no: 10006, first_name: 'Anneke', last_name: 'Preusig', department: 'Development', classification: 'Senior Engineer' },
-          { emp_no: 10007, first_name: 'Tzvetan', last_name: 'Zielinski', department: 'Research', classification: 'Senior Staff' },
-        ]);
-        setPagination({ page: page, limit: 15, totalPages: 10, total: 150 });
-      } finally {
-        setLoading(false);
-      }
-    };
+    if (data) {
+      addLog(`SELECT * FROM employees WHERE department LIKE '%${debouncedFilters.department}%' AND title LIKE '%${debouncedFilters.classification}%' LIMIT ${paginationState.limit} OFFSET ${(paginationState.page - 1) * paginationState.limit}`);
+      addLog(`-- Returned ${data.data.length} rows. Total dataset: ${data.pagination.total}`);
+    } else if (error) {
+      addLog(`-- ERROR: Connection failed.`);
+    }
+  }, [data, error, debouncedFilters, paginationState, addLog]);
 
-    fetchEmployees(pagination.page, debouncedFilters);
-  }, [pagination.page, pagination.limit, debouncedFilters]);
+  // Prefetch next page
+  useEffect(() => {
+    if (pagination.page < pagination.totalPages) {
+      const nextQueryParams = `page=${pagination.page + 1}&limit=${paginationState.limit}&department=${debouncedFilters.department}&classification=${debouncedFilters.classification}`;
+      preload(`http://localhost:5000/api/employees?${nextQueryParams}`, fetcher);
+    }
+  }, [pagination.page, pagination.totalPages, paginationState.limit, debouncedFilters]);
 
-  const handlePrevPage = () => {
-    if (pagination.page > 1) setPagination(prev => ({ ...prev, page: prev.page - 1 }));
-  };
+  const handlePrevPage = useCallback(() => {
+    if (paginationState.page > 1) setPaginationState(prev => ({ ...prev, page: prev.page - 1 }));
+  }, [paginationState.page]);
 
-  const handleNextPage = () => {
-    if (pagination.page < pagination.totalPages) setPagination(prev => ({ ...prev, page: prev.page + 1 }));
-  };
+  const handleNextPage = useCallback(() => {
+    if (paginationState.page < pagination.totalPages) setPaginationState(prev => ({ ...prev, page: prev.page + 1 }));
+  }, [paginationState.page, pagination.totalPages]);
 
-  const handleFilterChange = (e) => {
+  const handleFilterChange = useCallback((e) => {
     const { name, value } = e.target;
     setFilters(prev => ({ ...prev, [name]: value }));
-  };
+  }, []);
 
-  const handleInspect = async (empNo) => {
+  const handleInspect = useCallback(async (empNo) => {
     setSelectedEmp(empNo);
     setLoadingHistory(true);
     addLog(`SELECT * FROM employees, titles, salaries WHERE emp_no = ${empNo}`);
@@ -146,7 +163,7 @@ export const Registry = () => {
       return;
     } 
     setLoadingHistory(false);
-  };
+  }, [addLog]);
 
   const closeModal = () => {
     setSelectedEmp(null);
@@ -207,82 +224,59 @@ export const Registry = () => {
             </span>
           </div>
 
-          {loading ? (
-             <div className="flex-1 flex items-center justify-center">
-               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
-             </div>
-          ) : (
-            <>
-              <div className="overflow-x-auto border border-slate-200 rounded-md">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-100/80 text-slate-600 text-xs uppercase tracking-wider border-b border-slate-200 header-sans">
-                      <th className="px-4 py-3 font-bold w-24">UID Node</th>
-                      <th className="px-4 py-3 font-bold">Identitas</th>
-                      <th className="px-4 py-3 font-bold">Unit Operasional</th>
-                      <th className="px-4 py-3 font-bold">Klasifikasi</th>
-                      <th className="px-4 py-3 font-bold text-right">Audit</th>
+          <div className="overflow-x-auto border border-slate-200 rounded-md">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-100/80 text-slate-600 text-xs uppercase tracking-wider border-b border-slate-200 header-sans">
+                  <th className="px-4 py-3 font-bold w-24">UID Node</th>
+                  <th className="px-4 py-3 font-bold">Identitas</th>
+                  <th className="px-4 py-3 font-bold">Unit Operasional</th>
+                  <th className="px-4 py-3 font-bold">Klasifikasi</th>
+                  <th className="px-4 py-3 font-bold text-right">Audit</th>
+                </tr>
+              </thead>
+              {loading ? (
+                <TableSkeleton rows={paginationState.limit} cols={5} />
+              ) : (
+                <tbody className="divide-y divide-slate-100">
+                  {employees.map((emp) => (
+                    <EmployeeRow key={emp.emp_no} emp={emp} onInspect={handleInspect} />
+                  ))}
+                  {employees.length === 0 && (
+                    <tr>
+                      <td colSpan="5" className="px-4 py-8 text-center text-slate-500">Pencarian tidak menemukan kecocokan.</td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {employees.map((emp) => (
-                      <tr key={emp.emp_no} className="hover:bg-slate-50 transition-colors group">
-                        <td className="px-4 py-2.5 text-xs font-semibold text-emerald-700 data-mono">#{emp.emp_no}</td>
-                        <td className="px-4 py-2.5">
-                          <p className="text-sm font-bold text-slate-800 whitespace-nowrap">{emp.first_name} {emp.last_name}</p>
-                        </td>
-                        <td className="px-4 py-2.5 text-xs font-medium text-purple-700 whitespace-nowrap">
-                          {emp.department || 'N/A'}
-                        </td>
-                        <td className="px-4 py-2.5 text-xs text-slate-600 data-mono font-medium whitespace-nowrap">{emp.classification || 'N/A'}</td>
-                        <td className="px-4 py-2.5 text-right">
-                          <div className="flex items-center justify-end space-x-2 md:opacity-50 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => handleInspect(emp.emp_no)} className="p-1.5 bg-slate-100 text-blue-600 rounded hover:bg-blue-100 transition-colors" title="Inspect Node">
-                              <Eye className="w-4 h-4" />
-                            </button>
-                            <button className="p-1.5 bg-slate-100 text-red-600 rounded hover:bg-red-100 transition-colors" title="Delete Node (Mock)">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {employees.length === 0 && (
-                      <tr>
-                        <td colSpan="5" className="px-4 py-8 text-center text-slate-500">Pencarian tidak menemukan kecocokan.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                  )}
+                </tbody>
+              )}
+            </table>
+          </div>
 
-              {/* Pagination */}
-              <div className="flex flex-col md:flex-row items-center justify-between mt-4 space-y-3 md:space-y-0">
-                <p className="text-xs text-slate-500 font-medium data-mono">
-                  Rows {(pagination.page - 1) * pagination.limit + (employees.length > 0 ? 1 : 0)} - {Math.min(pagination.page * pagination.limit, pagination.total)}
-                </p>
-                <div className="flex items-center space-x-2">
-                  <button 
-                    onClick={handlePrevPage}
-                    disabled={pagination.page === 1}
-                    className={`p-1.5 rounded border ${pagination.page === 1 ? 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed' : 'border-slate-300 text-slate-700 hover:bg-slate-100 bg-white'}`}
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <span className="text-xs font-bold text-slate-700 px-3 data-mono">
-                    {pagination.page} / {pagination.totalPages.toLocaleString('id-ID')}
-                  </span>
-                  <button 
-                    onClick={handleNextPage}
-                    disabled={pagination.page === pagination.totalPages || pagination.totalPages === 0}
-                    className={`p-1.5 rounded border ${pagination.page === pagination.totalPages || pagination.totalPages === 0 ? 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed' : 'border-slate-300 text-slate-700 hover:bg-slate-100 bg-white'}`}
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
+          {/* Pagination */}
+          <div className="flex flex-col md:flex-row items-center justify-between mt-4 space-y-3 md:space-y-0">
+            <p className="text-xs text-slate-500 font-medium data-mono">
+              Rows {(pagination.page - 1) * pagination.limit + (employees.length > 0 ? 1 : 0)} - {Math.min(pagination.page * pagination.limit, pagination.total)}
+            </p>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={handlePrevPage}
+                disabled={pagination.page === 1}
+                className={`p-1.5 rounded border ${pagination.page === 1 ? 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed' : 'border-slate-300 text-slate-700 hover:bg-slate-100 bg-white'}`}
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-xs font-bold text-slate-700 px-3 data-mono">
+                {pagination.page} / {pagination.totalPages.toLocaleString('id-ID')}
+              </span>
+              <button
+                onClick={handleNextPage}
+                disabled={pagination.page === pagination.totalPages || pagination.totalPages === 0}
+                className={`p-1.5 rounded border ${pagination.page === pagination.totalPages || pagination.totalPages === 0 ? 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed' : 'border-slate-300 text-slate-700 hover:bg-slate-100 bg-white'}`}
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
         </GlassCard>
 
         {/* Live SQL Console */}

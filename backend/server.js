@@ -425,6 +425,47 @@ app.get('/api/financial/audit', async (req, res) => {
     }
 });
 
+// GET /api/managers
+app.get('/api/managers', async (req, res) => {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 15;
+    const lastName = req.query.last_name || '';
+    const offset = (page - 1) * limit;
+
+    let filterParams = [];
+    let whereClause = "";
+    
+    if (lastName) {
+        whereClause = `WHERE last_name LIKE ?`;
+        filterParams.push(`%${lastName}%`);
+    }
+
+    try {
+        const [countRows] = await db.query(`SELECT COUNT(*) as total FROM v_manager_profiles ${whereClause}`, filterParams);
+        const total = countRows[0].total;
+
+        const queryParams = [...filterParams, limit, offset];
+        const [rows] = await db.query(`
+            SELECT * FROM v_manager_profiles 
+            ${whereClause}
+            ORDER BY emp_no ASC
+            LIMIT ? OFFSET ?
+        `, queryParams);
+
+        res.json({
+            status: 'success',
+            data: rows,
+            pagination: {
+                total, page, limit,
+                totalPages: Math.ceil(total / limit)
+            }
+        });
+    } catch (error) {
+        console.error('[SQL_ERROR]', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`[INFRASTRUKTUR_OPTIMAL] Sektor_A mendengarkan pada port ${PORT}`);
 });

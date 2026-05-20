@@ -1,7 +1,23 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, memo, useCallback } from 'react';
 import axios from 'axios';
+import useSWR, { preload } from 'swr';
 import { Calculator, TrendingUp, ShieldCheck, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { TableSkeleton } from '../components/Skeleton';
+
+const fetcher = url => axios.get(url).then(res => res.data);
+
+// Optimasi: Memoized row untuk audit log agar tidak re-render saat parent state berubah
+const AuditRow = memo(({ log }) => (
+  <tr className="hover:bg-slate-50 transition-colors">
+    <td className="px-4 py-2.5 text-xs font-semibold text-slate-500 data-mono">#{log.emp_no}</td>
+    <td className="px-4 py-2.5 text-sm font-bold text-slate-800">{log.full_name}</td>
+    <td className="px-4 py-2.5 text-xs font-medium text-slate-600">{log.classification || 'N/A'}</td>
+    <td className="px-4 py-2.5 text-right font-black text-red-600 data-mono">
+      ${log.annual_yield ? log.annual_yield.toLocaleString('id-ID') : 0}
+    </td>
+  </tr>
+));
 
 // Inlining the components to ensure they compile correctly in the current environment
 const GlassCard = ({ children, className = '' }) => (
@@ -23,83 +39,37 @@ const Footer = () => (
 );
 
 export const Processing = () => {
-  const [summary, setSummary] = useState({ totalPayroll: 0, growthRate: '', balance: 0 });
-  const [unitExpenses, setUnitExpenses] = useState([]);
-  const [auditLog, setAuditLog] = useState([]);
-  const [pagination, setPagination] = useState({ page: 1, limit: 10, totalPages: 1, total: 0 });
-  const [loading, setLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState(null);
+  const [paginationState, setPaginationState] = useState({ page: 1, limit: 10 });
 
+  // SWR Hooks
+  const { data: summaryRes, error: summaryErr } = useSWR('http://localhost:5000/api/financial/summary', fetcher);
+  const { data: unitsRes, error: unitsErr } = useSWR('http://localhost:5000/api/units/capacity', fetcher);
+  
+  const auditUrl = `http://localhost:5000/api/financial/audit?page=${paginationState.page}&limit=${paginationState.limit}`;
+  const { data: auditRes, error: auditErr, isLoading: auditLoading } = useSWR(auditUrl, fetcher, { keepPreviousData: true });
+
+  const summary = summaryRes?.data || { totalPayroll: 0, growthRate: '+0.0%', balance: 0 };
+  const unitExpenses = (unitsRes?.data || []).map(u => ({ name: u.name, cost: u.total_budget }));
+  
+  const auditLog = auditRes?.data || [];
+  const pagination = auditRes?.pagination || { page: 1, limit: 10, totalPages: 1, total: 0 };
+
+  const errorMsg = (summaryErr || unitsErr || auditErr) ? "Gagal memuat sebagian data. Pastikan koneksi ke server stabil." : null;
+
+  // Prefetch next audit page
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [summaryRes, unitsRes] = await Promise.all([
-          axios.get('http://localhost:5000/api/financial/summary'),
-          axios.get('http://localhost:5000/api/units/capacity')
-        ]);
-        
-        setSummary(summaryRes.data.data);
-        setErrorMsg(null);
-        
-        // Format unit expenses for chart
-        const formattedUnits = unitsRes.data.data.map(u => ({
-          name: u.name,
-          cost: u.total_budget
-        }));
-        setUnitExpenses(formattedUnits);
-      } catch (error) {
-        console.error("Error fetching processing data", error);
-        setErrorMsg("Gagal memuat data finansial. Menampilkan data simulasi (Mock Data).");
-        
-        // Mock data fallback
-        setSummary({ totalPayroll: 1854500000, growthRate: '+2.4%', balance: 3500000000 });
-        setUnitExpenses([
-          { name: 'Development', cost: 154200000 },
-          { name: 'Sales', cost: 92500000 },
-          { name: 'Production', cost: 118400000 },
-          { name: 'Customer Service', cost: 41200000 },
-          { name: 'Marketing', cost: 38500000 }
-        ]);
-      }
-    };
+    if (pagination.page < pagination.totalPages) {
+      preload(`http://localhost:5000/api/financial/audit?page=${pagination.page + 1}&limit=${paginationState.limit}`, fetcher);
+    }
+  }, [pagination.page, pagination.totalPages, paginationState.limit]);
 
-    fetchData();
-  }, []);
+  const handlePrevPage = useCallback(() => {
+    if (paginationState.page > 1) setPaginationState(prev => ({ ...prev, page: prev.page - 1 }));
+  }, [paginationState.page]);
 
-  useEffect(() => {
-    const fetchAuditLog = async (page) => {
-      setLoading(true);
-      try {
-        const res = await axios.get(`http://localhost:5000/api/financial/audit?page=${page}&limit=${pagination.limit}`);
-        setAuditLog(res.data.data);
-        setPagination(res.data.pagination);
-      } catch (error) {
-        console.error("Error fetching audit log", error);
-        
-        // Mock data fallback
-        setAuditLog([
-          { emp_no: 10001, full_name: 'Georgi Facello', classification: 'Senior Staff', annual_yield: 85000 },
-          { emp_no: 10002, full_name: 'Bezalel Simmel', classification: 'Staff', annual_yield: 62000 },
-          { emp_no: 10003, full_name: 'Parto Bamford', classification: 'Senior Engineer', annual_yield: 94000 },
-          { emp_no: 10004, full_name: 'Chirstian Koblick', classification: 'Engineer', annual_yield: 75000 },
-          { emp_no: 10005, full_name: 'Kyoichi Maliniak', classification: 'Staff', annual_yield: 58000 }
-        ]);
-        setPagination({ page: page, limit: 10, totalPages: 10, total: 100 });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchAuditLog(pagination.page);
-  }, [pagination.page, pagination.limit]);
-
-  const handlePrevPage = () => {
-    if (pagination.page > 1) setPagination(prev => ({ ...prev, page: prev.page - 1 }));
-  };
-
-  const handleNextPage = () => {
-    if (pagination.page < pagination.totalPages) setPagination(prev => ({ ...prev, page: prev.page + 1 }));
-  };
+  const handleNextPage = useCallback(() => {
+    if (paginationState.page < pagination.totalPages) setPaginationState(prev => ({ ...prev, page: prev.page + 1 }));
+  }, [paginationState.page, pagination.totalPages]);
 
   return (
     <div className="flex-1 flex flex-col min-h-screen bg-slate-50 ml-0 md:ml-64 transition-all">
@@ -177,69 +147,60 @@ export const Processing = () => {
               Log Audit Gaji (Annual Yield)
             </h3>
             
-            {loading ? (
-              <div className="flex-1 flex items-center justify-center min-h-[300px]">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600"></div>
-              </div>
-            ) : (
-              <>
-                <div className="flex-1 overflow-x-auto border border-slate-200 rounded-md">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-100/80 text-slate-600 text-xs uppercase tracking-wider border-b border-slate-200 header-sans">
-                        <th className="px-4 py-3 font-bold">UID</th>
-                        <th className="px-4 py-3 font-bold">Nama Entitas</th>
-                        <th className="px-4 py-3 font-bold">Klasifikasi</th>
-                        <th className="px-4 py-3 font-bold text-right">Annual Yield</th>
+            <div className="flex-1 overflow-x-auto border border-slate-200 rounded-md">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-100/80 text-slate-600 text-xs uppercase tracking-wider border-b border-slate-200 header-sans">
+                    <th className="px-4 py-3 font-bold">UID</th>
+                    <th className="px-4 py-3 font-bold">Nama Entitas</th>
+                    <th className="px-4 py-3 font-bold">Klasifikasi</th>
+                    <th className="px-4 py-3 font-bold text-right">Annual Yield</th>
+                  </tr>
+                </thead>
+                {auditLoading ? (
+                  <TableSkeleton rows={10} cols={4} />
+                ) : (
+                  <tbody className="divide-y divide-slate-100">
+                    {auditLog.map((log) => (
+                      <AuditRow key={log.emp_no} log={log} />
+                    ))}
+                    {auditLog.length === 0 && (
+                      <tr>
+                        <td colSpan="4" className="px-4 py-8 text-center text-slate-500">Log audit kosong.</td>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {auditLog.map((log) => (
-                        <tr key={log.emp_no} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-4 py-2.5 text-xs font-semibold text-slate-500 data-mono">#{log.emp_no}</td>
-                          <td className="px-4 py-2.5 text-sm font-bold text-slate-800">{log.full_name}</td>
-                          <td className="px-4 py-2.5 text-xs font-medium text-slate-600">{log.classification || 'N/A'}</td>
-                          <td className="px-4 py-2.5 text-right font-black text-red-600 data-mono">
-                            ${log.annual_yield ? log.annual_yield.toLocaleString('id-ID') : 0}
-                          </td>
-                        </tr>
-                      ))}
-                      {auditLog.length === 0 && (
-                        <tr>
-                          <td colSpan="4" className="px-4 py-8 text-center text-slate-500">Log audit kosong.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                    )}
+                  </tbody>
+                )}
+              </table>
+            </div>
 
-                <div className="flex items-center justify-between mt-4">
-                  <p className="text-xs text-slate-500 font-medium data-mono">
-                    Audit Rows {(pagination.page - 1) * pagination.limit + (auditLog.length > 0 ? 1 : 0)} - {Math.min(pagination.page * pagination.limit, pagination.total)}
-                  </p>
-                  <div className="flex items-center space-x-2">
-                    <button 
-                      onClick={handlePrevPage}
-                      disabled={pagination.page === 1}
-                      className={`p-1.5 rounded border ${pagination.page === 1 ? 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed' : 'border-slate-300 text-slate-700 hover:bg-slate-100 bg-white'}`}
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <span className="text-xs font-bold text-slate-700 px-3 data-mono">
-                      {pagination.page} / {pagination.totalPages.toLocaleString('id-ID')}
-                    </span>
-                    <button 
-                      onClick={handleNextPage}
-                      disabled={pagination.page === pagination.totalPages || pagination.totalPages === 0}
-                      className={`p-1.5 rounded border ${pagination.page === pagination.totalPages || pagination.totalPages === 0 ? 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed' : 'border-slate-300 text-slate-700 hover:bg-slate-100 bg-white'}`}
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
+            {/* Pagination */}
+            <div className="flex items-center justify-between mt-4">
+              <p className="text-xs text-slate-500 font-medium data-mono">
+                Audit Rows {(pagination.page - 1) * pagination.limit + (auditLog.length > 0 ? 1 : 0)} - {Math.min(pagination.page * pagination.limit, pagination.total)}
+              </p>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handlePrevPage}
+                  disabled={pagination.page === 1}
+                  className={`p-1.5 rounded border ${pagination.page === 1 ? 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed' : 'border-slate-300 text-slate-700 hover:bg-slate-100 bg-white'}`}
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-xs font-bold text-slate-700 px-3 data-mono">
+                  {pagination.page} / {pagination.totalPages.toLocaleString('id-ID')}
+                </span>
+                <button
+                  onClick={handleNextPage}
+                  disabled={pagination.page === pagination.totalPages || pagination.totalPages === 0}
+                  className={`p-1.5 rounded border ${pagination.page === pagination.totalPages || pagination.totalPages === 0 ? 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed' : 'border-slate-300 text-slate-700 hover:bg-slate-100 bg-white'}`}
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
           </GlassCard>
+
 
         </div>
       </main>

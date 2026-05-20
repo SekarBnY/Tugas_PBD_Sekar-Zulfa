@@ -1,7 +1,25 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, memo, useMemo } from 'react';
 import axios from 'axios';
+import useSWR from 'swr';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
-import { Users, Banknote, ShieldAlert, Building2, AlertTriangle, Loader2 } from 'lucide-react';
+import { Users, Banknote, ShieldAlert, Building2, AlertTriangle } from 'lucide-react';
+import { StatCardSkeleton, ChartSkeleton, HireItemSkeleton } from '../components/Skeleton';
+
+const fetcher = url => axios.get(url).then(res => res.data);
+
+// Optimasi: Memoized card untuk setiap item di daftar Sintesis Terakhir
+const HireCard = memo(({ hire }) => (
+  <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg hover:border-emerald-300 transition-colors">
+    <div className="flex justify-between items-center mb-1">
+      <span className="text-sm font-bold text-slate-800">{hire.first_name} {hire.last_name}</span>
+      <span className="text-xs data-mono font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">#{hire.emp_no}</span>
+    </div>
+    <div className="flex justify-between items-center">
+      <span className="text-xs text-slate-500">{hire.title || 'Node'}</span>
+      <span className="text-xs data-mono text-slate-400">{hire.hire_date}</span>
+    </div>
+  </div>
+));
 
 // Inlining the components here to ensure they compile correctly in the current environment
 const GlassCard = ({ children, className = '' }) => (
@@ -25,104 +43,33 @@ const Footer = () => (
 const COLORS = ['#059669', '#9333ea', '#3b82f6', '#f59e0b', '#ef4444'];
 
 export const Dashboard = () => {
-  const [stats, setStats] = useState({ totalNodes: 0, averageYield: 0, activeManagers: 0, totalUnits: 0 });
-  const [hiringData, setHiringData] = useState([]);
-  const [deptData, setDeptData] = useState([]);
-  const [latestHires, setLatestHires] = useState([]);
-  const [demographics, setDemographics] = useState({ gender: [], age: [] });
-  const [loading, setLoading] = useState(true);
-  const [progress, setProgress] = useState(0);
-  const [errorMsg, setErrorMsg] = useState(null);
+  const { data: statsRes, error: statsErr, isLoading: statsLoading } = useSWR('http://localhost:5000/api/stats', fetcher);
+  const { data: hiringRes, error: hiringErr, isLoading: hiringLoading } = useSWR('http://localhost:5000/api/charts/hiring', fetcher);
+  const { data: deptRes, error: deptErr, isLoading: deptLoading } = useSWR('http://localhost:5000/api/charts/departments', fetcher);
+  const { data: hiresRes, error: hiresErr, isLoading: hiresLoading } = useSWR('http://localhost:5000/api/latest-hires', fetcher);
+  const { data: demoRes, error: demoErr, isLoading: demoLoading } = useSWR('http://localhost:5000/api/charts/demographics', fetcher);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        let completed = 0;
-        const totalTasks = 5;
-        
-        // Fungsi pembantu untuk meningkatkan progres setiap kali request selesai
-        const updateProgress = (res) => {
-          completed++;
-          setProgress(Math.round((completed / totalTasks) * 100));
-          return res;
-        };
+  const stats = statsErr ? { totalNodes: 14250, averageYield: 75400, activeManagers: 104, totalUnits: 12 } : (statsRes?.data || { totalNodes: 0, averageYield: 0, activeManagers: 0, totalUnits: 0 });
+  const hiringData = hiringErr ? [
+    { year: 2018, count: 120 }, { year: 2019, count: 250 }, { year: 2020, count: 180 },
+    { year: 2021, count: 320 }, { year: 2022, count: 410 }, { year: 2023, count: 390 }
+  ] : (hiringRes?.data || []);
+  const deptData = deptErr ? [
+    { name: 'Engineering', value: 4500 }, { name: 'Sales', value: 3200 },
+    { name: 'Marketing', value: 2100 }, { name: 'Human Resources', value: 850 },
+    { name: 'Finance', value: 600 }
+  ] : (deptRes?.data || []);
+  const latestHires = hiresErr ? [
+    { emp_no: 10001, first_name: 'Budi', last_name: 'Santoso', title: 'Senior Engineer', hire_date: '2023-11-12' },
+    { emp_no: 10002, first_name: 'Siti', last_name: 'Aminah', title: 'Marketing Manager', hire_date: '2023-12-05' },
+    { emp_no: 10003, first_name: 'Andi', last_name: 'Wijaya', title: 'Sales Associate', hire_date: '2024-01-10' }
+  ] : (hiresRes?.data || []);
+  const demographics = demoErr ? {
+    gender: [{ name: 'M', value: 8500 }, { name: 'F', value: 5750 }],
+    age: [{ name: '1970s', value: 1200 }, { name: '1980s', value: 4500 }, { name: '1990s', value: 6500 }, { name: '2000s', value: 2050 }]
+  } : (demoRes?.data || { gender: [], age: [] });
 
-        const [statsRes, hiringRes, deptRes, latestRes, demoRes] = await Promise.all([
-          axios.get('http://localhost:5000/api/stats').then(updateProgress),
-          axios.get('http://localhost:5000/api/charts/hiring').then(updateProgress),
-          axios.get('http://localhost:5000/api/charts/departments').then(updateProgress),
-          axios.get('http://localhost:5000/api/latest-hires').then(updateProgress),
-          axios.get('http://localhost:5000/api/charts/demographics').then(updateProgress)
-        ]);
-        
-        setStats(statsRes.data.data);
-        setHiringData(hiringRes.data.data);
-        setDeptData(deptRes.data.data);
-        setLatestHires(latestRes.data.data);
-        setDemographics(demoRes.data.data);
-        setErrorMsg(null);
-      } catch (error) {
-        console.error("Error fetching data", error);
-        setErrorMsg("Koneksi ke backend server gagal (Network Error). Menampilkan data pratinjau simulasi.");
-        
-        // Memuat data mock secara bertahap untuk mensimulasikan progres pada fallback
-        setProgress(100);
-        setStats({ totalNodes: 14250, averageYield: 75400, activeManagers: 104, totalUnits: 12 });
-        setHiringData([
-          { year: 2018, count: 120 }, { year: 2019, count: 250 }, { year: 2020, count: 180 },
-          { year: 2021, count: 320 }, { year: 2022, count: 410 }, { year: 2023, count: 390 }
-        ]);
-        setDeptData([
-          { name: 'Engineering', value: 4500 }, { name: 'Sales', value: 3200 },
-          { name: 'Marketing', value: 2100 }, { name: 'Human Resources', value: 850 },
-          { name: 'Finance', value: 600 }
-        ]);
-        setLatestHires([
-          { emp_no: 10001, first_name: 'Budi', last_name: 'Santoso', title: 'Senior Engineer', hire_date: '2023-11-12' },
-          { emp_no: 10002, first_name: 'Siti', last_name: 'Aminah', title: 'Marketing Manager', hire_date: '2023-12-05' },
-          { emp_no: 10003, first_name: 'Andi', last_name: 'Wijaya', title: 'Sales Associate', hire_date: '2024-01-10' },
-          { emp_no: 10004, first_name: 'Rina', last_name: 'Melati', title: 'HR Specialist', hire_date: '2024-02-14' },
-          { emp_no: 10005, first_name: 'Dewi', last_name: 'Lestari', title: 'Data Analyst', hire_date: '2024-03-01' }
-        ]);
-        setDemographics({
-          gender: [{ name: 'M', value: 8500 }, { name: 'F', value: 5750 }],
-          age: [{ name: '1970s', value: 1200 }, { name: '1980s', value: 4500 }, { name: '1990s', value: 6500 }, { name: '2000s', value: 2050 }]
-        });
-      } finally {
-        // Sedikit delay agar user sempat melihat persentase 100%
-        setTimeout(() => setLoading(false), 300);
-      }
-    };
-
-    fetchData();
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="flex flex-col h-screen items-center justify-center bg-slate-50 relative overflow-hidden">
-        {/* Background glow effect */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-200/40 rounded-full blur-3xl pointer-events-none"></div>
-        
-        <div className="relative z-10 flex flex-col items-center">
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6 flex items-center justify-center">
-            <Loader2 className="w-10 h-10 text-emerald-600 animate-spin" />
-          </div>
-          
-          <h2 className="text-xl font-bold text-slate-800 mb-2">Memuat Dasbor</h2>
-          <p className="text-sm text-slate-500 font-medium mb-6">Mengambil data analitik...</p>
-          
-          <div className="w-64 bg-slate-200 rounded-full h-2 mb-3 overflow-hidden shadow-inner">
-            <div 
-              className="bg-emerald-500 h-2 rounded-full transition-all duration-300 ease-out" 
-              style={{ width: `${Math.max(progress, 5)}%` }} // Minimal width 5% as starting indicator
-            ></div>
-          </div>
-          
-          <p className="text-emerald-600 text-xs font-bold tracking-widest data-mono">{progress}%</p>
-        </div>
-      </div>
-    );
-  }
+  const errorMsg = (statsErr || hiringErr || deptErr || hiresErr || demoErr) ? "Koneksi terputus. Menampilkan data fallback (Mock Data)." : null;
 
   return (
     <div className="flex-1 flex flex-col min-h-screen bg-slate-50 ml-0 md:ml-64 transition-all duration-300 animate-in fade-in duration-500">
@@ -130,7 +77,6 @@ export const Dashboard = () => {
       
       <main className="p-4 md:p-8 flex-1 space-y-8">
 
-        {/* Warning Banner untuk Mode Mock/Fallback */}
         {errorMsg && (
           <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-lg flex items-center shadow-sm">
             <AlertTriangle className="text-amber-500 w-6 h-6 mr-3 flex-shrink-0" />
@@ -140,53 +86,56 @@ export const Dashboard = () => {
         
         {/* Metrik Utama */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-          <GlassCard className="flex items-center p-6 border-l-4 border-l-emerald-500 hover:shadow-md transition-shadow">
-            <div className="p-3 bg-emerald-100 rounded-lg mr-4">
-              <Users className="w-6 h-6 text-emerald-600" />
-            </div>
-            <div>
-              <p className="text-xs text-slate-500 font-bold tracking-wider uppercase">Total Node Aktif</p>
-              <h3 className="text-2xl font-black text-slate-800 mt-1 data-mono">
-                {stats.totalNodes.toLocaleString('id-ID')}
-              </h3>
-            </div>
-          </GlassCard>
-
-          <GlassCard className="flex items-center p-6 border-l-4 border-l-emerald-600 hover:shadow-md transition-shadow">
-            <div className="p-3 bg-emerald-100 rounded-lg mr-4">
-              <Banknote className="w-6 h-6 text-emerald-700" />
-            </div>
-            <div>
-              <p className="text-xs text-slate-500 font-bold tracking-wider uppercase">Beban Gaji Rata-rata</p>
-              <h3 className="text-2xl font-black text-slate-800 mt-1 data-mono">
-                ${stats.averageYield.toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-              </h3>
-            </div>
-          </GlassCard>
-
-          <GlassCard className="flex items-center p-6 border-l-4 border-l-purple-500 hover:shadow-md transition-shadow">
-            <div className="p-3 bg-purple-100 rounded-lg mr-4">
-              <Building2 className="w-6 h-6 text-purple-600" />
-            </div>
-            <div>
-              <p className="text-xs text-slate-500 font-bold tracking-wider uppercase">Unit Operasional</p>
-              <h3 className="text-2xl font-black text-slate-800 mt-1 data-mono">
-                {stats.totalUnits.toLocaleString('id-ID')}
-              </h3>
-            </div>
-          </GlassCard>
-
-          <GlassCard className="flex items-center p-6 border-l-4 border-l-purple-700 hover:shadow-md transition-shadow">
-            <div className="p-3 bg-purple-200 rounded-lg mr-4">
-              <ShieldAlert className="w-6 h-6 text-purple-800" />
-            </div>
-            <div>
-              <p className="text-xs text-slate-500 font-bold tracking-wider uppercase">Manajer Aktif</p>
-              <h3 className="text-2xl font-black text-slate-800 mt-1 data-mono">
-                {stats.activeManagers.toLocaleString('id-ID')}
-              </h3>
-            </div>
-          </GlassCard>
+          {statsLoading ? (
+            <><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /></>
+          ) : (
+            <>
+              <GlassCard className="flex items-center p-6 border-l-4 border-l-emerald-500 hover:shadow-md transition-shadow">
+                <div className="p-3 bg-emerald-100 rounded-lg mr-4">
+                  <Users className="w-6 h-6 text-emerald-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 font-bold tracking-wider uppercase">Total Node Aktif</p>
+                  <h3 className="text-2xl font-black text-slate-800 mt-1 data-mono">
+                    {stats.totalNodes.toLocaleString('id-ID')}
+                  </h3>
+                </div>
+              </GlassCard>
+              <GlassCard className="flex items-center p-6 border-l-4 border-l-emerald-600 hover:shadow-md transition-shadow">
+                <div className="p-3 bg-emerald-100 rounded-lg mr-4">
+                  <Banknote className="w-6 h-6 text-emerald-700" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 font-bold tracking-wider uppercase">Beban Gaji Rata-rata</p>
+                  <h3 className="text-2xl font-black text-slate-800 mt-1 data-mono">
+                    ${stats.averageYield.toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </h3>
+                </div>
+              </GlassCard>
+              <GlassCard className="flex items-center p-6 border-l-4 border-l-purple-500 hover:shadow-md transition-shadow">
+                <div className="p-3 bg-purple-100 rounded-lg mr-4">
+                  <Building2 className="w-6 h-6 text-purple-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 font-bold tracking-wider uppercase">Unit Operasional</p>
+                  <h3 className="text-2xl font-black text-slate-800 mt-1 data-mono">
+                    {stats.totalUnits.toLocaleString('id-ID')}
+                  </h3>
+                </div>
+              </GlassCard>
+              <GlassCard className="flex items-center p-6 border-l-4 border-l-purple-700 hover:shadow-md transition-shadow">
+                <div className="p-3 bg-purple-200 rounded-lg mr-4">
+                  <ShieldAlert className="w-6 h-6 text-purple-800" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 font-bold tracking-wider uppercase">Manajer Aktif</p>
+                  <h3 className="text-2xl font-black text-slate-800 mt-1 data-mono">
+                    {stats.activeManagers.toLocaleString('id-ID')}
+                  </h3>
+                </div>
+              </GlassCard>
+            </>
+          )}
         </div>
 
         {/* Demographics & Demografi */}
@@ -289,16 +238,7 @@ export const Dashboard = () => {
             </h3>
             <div className="flex-1 overflow-y-auto pr-2 space-y-4">
               {latestHires.map((hire) => (
-                <div key={hire.emp_no} className="p-3 bg-slate-50 border border-slate-200 rounded-lg hover:border-emerald-300 transition-colors">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-sm font-bold text-slate-800">{hire.first_name} {hire.last_name}</span>
-                    <span className="text-xs data-mono font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">#{hire.emp_no}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-slate-500">{hire.title || 'Node'}</span>
-                    <span className="text-xs data-mono text-slate-400">{hire.hire_date}</span>
-                  </div>
-                </div>
+                <HireCard key={hire.emp_no} hire={hire} />
               ))}
             </div>
           </GlassCard>

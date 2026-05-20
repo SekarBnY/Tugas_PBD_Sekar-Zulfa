@@ -1,7 +1,29 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, memo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import useSWR, { preload } from 'swr';
 import { Building2, Users, Banknote, History, ChevronLeft, ChevronRight, UserCog, ArrowLeft, AlertTriangle } from 'lucide-react';
+import { TableSkeleton } from '../components/Skeleton';
+
+const fetcher = url => axios.get(url).then(res => res.data);
+
+// Optimasi: Memoized row untuk mencegah re-render saat parent state berubah
+const DeptEmployeeRow = memo(({ emp }) => (
+  <tr className="hover:bg-slate-50 transition-colors">
+    <td className="px-3 py-2 text-xs font-semibold text-emerald-700 data-mono">#{emp.emp_no}</td>
+    <td className="px-3 py-2">
+      <p className="text-sm font-bold text-slate-800 whitespace-nowrap">{emp.first_name} {emp.last_name}</p>
+    </td>
+    <td className="px-3 py-2 text-xs font-medium text-slate-500">
+      {emp.gender === 'M' ? 'Pria' : 'Wanita'}
+    </td>
+    <td className="px-3 py-2 text-xs text-slate-600 data-mono font-medium whitespace-nowrap">{emp.classification || 'N/A'}</td>
+    <td className="px-3 py-2 text-xs text-right data-mono font-medium text-blue-600">
+      {emp.fiscal_yield ? `$${parseFloat(emp.fiscal_yield).toLocaleString('id-ID')}` : 'N/A'}
+    </td>
+    <td className="px-3 py-2 text-xs text-right data-mono text-slate-500 whitespace-nowrap">{emp.hire_date}</td>
+  </tr>
+));
 
 // Inlining the components to ensure they compile correctly in the current environment
 const GlassCard = ({ children, className = '' }) => (
@@ -25,79 +47,54 @@ const Footer = () => (
 export const DepartmentDetail = () => {
   const { dept_no } = useParams();
   const navigate = useNavigate();
-  
-  const [department, setDepartment] = useState(null);
-  const [managers, setManagers] = useState([]);
-  const [employees, setEmployees] = useState([]);
-  const [pagination, setPagination] = useState({ page: 1, limit: 15, totalPages: 1, total: 0 });
-  const [loading, setLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState(null);
 
-  // Fetch Department Info & Managers
+  const [paginationState, setPaginationState] = useState({ page: 1, limit: 15 });
+
+  const { data: deptRes, error: deptErr, isLoading: deptLoading } = useSWR(dept_no ? `http://localhost:5000/api/departments/${dept_no}` : null, fetcher);
+  const { data: managersRes, error: managersErr, isLoading: mgrLoading } = useSWR(dept_no ? `http://localhost:5000/api/departments/${dept_no}/managers` : null, fetcher);
+
+  const empUrl = dept_no ? `http://localhost:5000/api/departments/${dept_no}/employees?page=${paginationState.page}&limit=${paginationState.limit}` : null;
+  const { data: empRes, error: empErr, isLoading: empLoading } = useSWR(empUrl, fetcher, { keepPreviousData: true });
+
+  const department = deptErr ? {
+    dept_no: dept_no || 'DXXX',
+    name: 'Unit Operasional (Simulasi)',
+    nodes: 3450,
+    total_budget: 85000000,
+    current_manager: 'Siti Aminah',
+    manager_id: 110022
+  } : (deptRes?.data || null);
+
+  const managers = managersErr ? [
+    { emp_no: 110022, full_name: 'Siti Aminah', from_date: '2022-01-01', to_date: '9999-01-01' },
+    { emp_no: 110011, full_name: 'Budi Santoso', from_date: '2018-05-10', to_date: '2022-01-01' }
+  ] : (managersRes?.data || []);
+
+  const employees = empErr ? [
+    { emp_no: 10001, first_name: 'Andi', last_name: 'Wijaya', gender: 'M', classification: 'Senior Staff', fiscal_yield: 8500, hire_date: '2020-03-15' },
+    { emp_no: 10002, first_name: 'Rina', last_name: 'Melati', gender: 'F', classification: 'Staff', fiscal_yield: 6000, hire_date: '2021-06-20' },
+    { emp_no: 10003, first_name: 'Dewi', last_name: 'Lestari', gender: 'F', classification: 'Engineer', fiscal_yield: 9200, hire_date: '2019-11-01' }
+  ] : (empRes?.data || []);
+
+  const pagination = empErr ? { page: paginationState.page, limit: 15, totalPages: 5, total: 65 } : (empRes?.pagination || { page: 1, limit: 15, totalPages: 1, total: 0 });
+
+  const loading = deptLoading || mgrLoading;
+  const errorMsg = (deptErr || managersErr || empErr) ? "Koneksi ke server terputus. Menampilkan data pratinjau." : null;
+
+  // Prefetch next page
   useEffect(() => {
-    const fetchDepartmentInfo = async () => {
-      setLoading(true);
-      try {
-        const [deptRes, managersRes] = await Promise.all([
-          axios.get(`http://localhost:5000/api/departments/${dept_no}`),
-          axios.get(`http://localhost:5000/api/departments/${dept_no}/managers`)
-        ]);
-        setDepartment(deptRes.data.data);
-        setManagers(managersRes.data.data);
-        setErrorMsg(null);
-      } catch (error) {
-        console.error("Error fetching department info", error);
-        setErrorMsg("Koneksi ke server terputus. Menampilkan data pratinjau.");
-        
-        // Mock Data Fallback
-        setDepartment({
-          dept_no: dept_no || 'DXXX',
-          name: 'Unit Operasional (Simulasi)',
-          nodes: 3450,
-          total_budget: 85000000,
-          current_manager: 'Siti Aminah',
-          manager_id: 110022
-        });
-        setManagers([
-          { emp_no: 110022, full_name: 'Siti Aminah', from_date: '2022-01-01', to_date: '9999-01-01' },
-          { emp_no: 110011, full_name: 'Budi Santoso', from_date: '2018-05-10', to_date: '2022-01-01' }
-        ]);
-      } finally {
-        setLoading(false);
-      }
-    };
-    if (dept_no) fetchDepartmentInfo();
-  }, [dept_no]);
+    if (dept_no && pagination.page < pagination.totalPages) {
+      preload(`http://localhost:5000/api/departments/${dept_no}/employees?page=${pagination.page + 1}&limit=${paginationState.limit}`, fetcher);
+    }
+  }, [dept_no, pagination.page, pagination.totalPages, paginationState.limit]);
 
-  // Fetch Employees with Pagination
-  useEffect(() => {
-    const fetchEmployees = async (page) => {
-      try {
-        const res = await axios.get(`http://localhost:5000/api/departments/${dept_no}/employees?page=${page}&limit=${pagination.limit}`);
-        setEmployees(res.data.data);
-        setPagination(res.data.pagination);
-      } catch (error) {
-        console.error("Error fetching employees", error);
-        
-        // Mock Data Fallback
-        setEmployees([
-          { emp_no: 10001, first_name: 'Andi', last_name: 'Wijaya', gender: 'M', classification: 'Senior Staff', fiscal_yield: 8500, hire_date: '2020-03-15' },
-          { emp_no: 10002, first_name: 'Rina', last_name: 'Melati', gender: 'F', classification: 'Staff', fiscal_yield: 6000, hire_date: '2021-06-20' },
-          { emp_no: 10003, first_name: 'Dewi', last_name: 'Lestari', gender: 'F', classification: 'Engineer', fiscal_yield: 9200, hire_date: '2019-11-01' }
-        ]);
-        setPagination({ page, limit: 15, totalPages: 5, total: 65 });
-      }
-    };
-    if (dept_no && !loading) fetchEmployees(pagination.page);
-  }, [dept_no, pagination.page, pagination.limit, loading]);
+  const handlePrevPage = useCallback(() => {
+    if (paginationState.page > 1) setPaginationState(prev => ({ ...prev, page: prev.page - 1 }));
+  }, [paginationState.page]);
 
-  const handlePrevPage = () => {
-    if (pagination.page > 1) setPagination(prev => ({ ...prev, page: prev.page - 1 }));
-  };
-
-  const handleNextPage = () => {
-    if (pagination.page < pagination.totalPages) setPagination(prev => ({ ...prev, page: prev.page + 1 }));
-  };
+  const handleNextPage = useCallback(() => {
+    if (paginationState.page < pagination.totalPages) setPaginationState(prev => ({ ...prev, page: prev.page + 1 }));
+  }, [paginationState.page, pagination.totalPages]);
 
   if (loading) {
     return (
@@ -127,9 +124,9 @@ export const DepartmentDetail = () => {
   return (
     <div className="flex-1 flex flex-col min-h-screen bg-slate-50 ml-0 md:ml-64 transition-all">
       <Header title={`Profil Unit: ${department.name}`} />
-      
+
       <main className="p-4 md:p-8 flex-1 space-y-6">
-        
+
         {/* Warning Banner untuk Fallback */}
         {errorMsg && (
           <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-lg flex items-center shadow-sm">
@@ -137,7 +134,7 @@ export const DepartmentDetail = () => {
             <p className="text-amber-800 text-sm font-medium">{errorMsg}</p>
           </div>
         )}
-        
+
         {/* Navigation & Title */}
         <div className="flex items-center space-x-4 mb-2">
           <button onClick={() => navigate('/departments')} className="p-2 bg-white border border-slate-200 rounded-full hover:bg-slate-100 transition-colors text-slate-600 shadow-sm">
@@ -241,29 +238,20 @@ export const DepartmentDetail = () => {
                     <th className="px-3 py-2 font-bold text-right">Tgl Gabung</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {employees.map((emp) => (
-                    <tr key={emp.emp_no} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-3 py-2 text-xs font-semibold text-emerald-700 data-mono">#{emp.emp_no}</td>
-                      <td className="px-3 py-2">
-                        <p className="text-sm font-bold text-slate-800 whitespace-nowrap">{emp.first_name} {emp.last_name}</p>
-                      </td>
-                      <td className="px-3 py-2 text-xs font-medium text-slate-500">
-                        {emp.gender === 'M' ? 'Pria' : 'Wanita'}
-                      </td>
-                      <td className="px-3 py-2 text-xs text-slate-600 data-mono font-medium whitespace-nowrap">{emp.classification || 'N/A'}</td>
-                      <td className="px-3 py-2 text-xs text-right data-mono font-medium text-blue-600">
-                        {emp.fiscal_yield ? `$${parseFloat(emp.fiscal_yield).toLocaleString('id-ID')}` : 'N/A'}
-                      </td>
-                      <td className="px-3 py-2 text-xs text-right data-mono text-slate-500 whitespace-nowrap">{emp.hire_date}</td>
-                    </tr>
-                  ))}
-                  {employees.length === 0 && (
-                    <tr>
-                      <td colSpan="6" className="px-4 py-8 text-center text-slate-500">Tidak ada data personel aktif.</td>
-                    </tr>
-                  )}
-                </tbody>
+                {empLoading ? (
+                  <TableSkeleton rows={15} cols={6} />
+                ) : (
+                  <tbody className="divide-y divide-slate-100">
+                    {employees.map((emp) => (
+                      <DeptEmployeeRow key={emp.emp_no} emp={emp} />
+                    ))}
+                    {employees.length === 0 && (
+                      <tr>
+                        <td colSpan="6" className="px-4 py-8 text-center text-slate-500">Tidak ada data personel aktif.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                )}
               </table>
             </div>
 
@@ -273,7 +261,7 @@ export const DepartmentDetail = () => {
                 Menampilkan {(pagination.page - 1) * pagination.limit + (employees.length > 0 ? 1 : 0)} - {Math.min(pagination.page * pagination.limit, pagination.total)}
               </p>
               <div className="flex items-center space-x-2">
-                <button 
+                <button
                   onClick={handlePrevPage}
                   disabled={pagination.page === 1}
                   className={`p-1 rounded border ${pagination.page === 1 ? 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed' : 'border-slate-300 text-slate-700 hover:bg-slate-100 bg-white'}`}
@@ -283,7 +271,7 @@ export const DepartmentDetail = () => {
                 <span className="text-xs font-bold text-slate-700 px-2 data-mono">
                   {pagination.page} / {pagination.totalPages.toLocaleString('id-ID')}
                 </span>
-                <button 
+                <button
                   onClick={handleNextPage}
                   disabled={pagination.page === pagination.totalPages || pagination.totalPages === 0}
                   className={`p-1 rounded border ${pagination.page === pagination.totalPages || pagination.totalPages === 0 ? 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed' : 'border-slate-300 text-slate-700 hover:bg-slate-100 bg-white'}`}
